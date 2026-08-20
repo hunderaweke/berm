@@ -19,6 +19,42 @@ type Inner struct {
 	ID string
 }
 
+func PrintStructDetails(typeSpec *ast.TypeSpec, info *types.Info) {
+	// Look up the type definition object
+	obj := info.Defs[typeSpec.Name]
+	if obj == nil {
+		return
+	}
+
+	// Resolve the underlying struct type
+	structType, ok := obj.Type().Underlying().(*types.Struct)
+	if !ok {
+		return
+	}
+
+	fmt.Printf("  Fields (%d total):\n", structType.NumFields())
+	for i := 0; i < structType.NumFields(); i++ {
+		fieldVar := structType.Field(i)
+		tag := structType.Tag(i)
+
+		embeddedStr := ""
+		if fieldVar.Anonymous() {
+			embeddedStr = " [Embedded]"
+		}
+
+		tagStr := ""
+		if tag != "" {
+			tagStr = fmt.Sprintf(" `%s`", tag)
+		}
+
+		fmt.Printf("    - Name: %-15s Type: %-25s%s%s\n",
+			fieldVar.Name(),
+			fieldVar.Type().String(),
+			embeddedStr,
+			tagStr,
+		)
+	}
+}
 func IsTargetEmbeddedStruct(field *ast.Field, info *types.Info, targetPathPkg, targetStructName string) bool {
 
 	if len(field.Names) != 0 {
@@ -85,6 +121,7 @@ func scanDir(fset *token.FileSet) {
 					if IsTargetEmbeddedStruct(field, pkg.TypesInfo, "struct-inheritance/models", "Model") {
 						position := pkg.Fset.Position(typeSpec.Pos())
 						fmt.Printf("Found: struct '%s' in %s:%d\n", typeSpec.Name.Name, pkg.Dir, position.Line)
+						PrintStructDetails(typeSpec, pkg.TypesInfo)
 						return true
 					}
 				}
