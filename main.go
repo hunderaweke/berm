@@ -19,6 +19,42 @@ type Inner struct {
 	ID string
 }
 
+type FieldInfo struct {
+	Name     string
+	Type     string
+	Tag      string
+	Embedded bool
+	Parent   string
+}
+
+func ExtactAllFields(st *types.Struct, parentName string) []FieldInfo {
+	var fields []FieldInfo
+	for i := 0; i < st.NumFields(); i++ {
+		field := st.Field(i)
+		tag := st.Tag(i)
+		fieldName := field.Name()
+		fieldInfo := FieldInfo{
+			Name:     fieldName,
+			Type:     field.Type().String(),
+			Tag:      tag,
+			Embedded: field.Anonymous(),
+			Parent:   parentName,
+		}
+		fields = append(fields, fieldInfo)
+		if field.Anonymous() {
+			typ := field.Type()
+			if ptr, ok := typ.(*types.Pointer); ok {
+				typ = ptr.Elem()
+			}
+			if embeddedStruct, ok := typ.Underlying().(*types.Struct); ok {
+				innerFields := ExtactAllFields(embeddedStruct, field.Name())
+				fields = append(fields, innerFields...)
+			}
+		}
+	}
+	return fields
+}
+
 func PrintStructDetails(typeSpec *ast.TypeSpec, info *types.Info) {
 	obj := info.Defs[typeSpec.Name]
 	if obj == nil {
@@ -117,8 +153,25 @@ func scanDir(fset *token.FileSet) {
 				for _, field := range structType.Fields.List {
 					if IsTargetEmbeddedStruct(field, pkg.TypesInfo, "struct-inheritance/models", "Model") {
 						position := pkg.Fset.Position(typeSpec.Pos())
-						fmt.Printf("Found: struct '%s' in %s:%d\n", typeSpec.Name.Name, pkg.Dir, position.Line)
-						PrintStructDetails(typeSpec, pkg.TypesInfo)
+						fmt.Printf("\n===== Struct:%s (%s:%d) =====\n", typeSpec.Name.Name, pkg.Dir, position.Line)
+						obj := pkg.TypesInfo.Defs[typeSpec.Name]
+						if obj != nil {
+							if st, ok := obj.Type().Underlying().(*types.Struct); ok {
+								allFields := ExtactAllFields(st, "")
+								for _, f := range allFields {
+									origin := ""
+									if f.Parent != "" {
+										origin = fmt.Sprintf(" (via %s)", f.Parent)
+									}
+									tagStr := ""
+									if f.Tag != "" {
+										tagStr = fmt.Sprintf(" `%s` ", f.Tag)
+									}
+									fmt.Printf("  - %-15s %-30s%s%s\n ", f.Name, f.Type, origin, tagStr)
+								}
+							}
+						}
+						// PrintStructDetails(typeSpec, pkg.TypesInfo)
 						return true
 					}
 				}
