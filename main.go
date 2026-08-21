@@ -7,6 +7,7 @@ import (
 	"go/types"
 	"log"
 
+	"github.com/hunderaweke/berm/parser"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -19,21 +20,13 @@ type Inner struct {
 	ID string
 }
 
-type FieldInfo struct {
-	Name     string
-	Type     string
-	Tag      string
-	Embedded bool
-	Parent   string
-}
-
-func ExtactAllFields(st *types.Struct, parentName string) []FieldInfo {
-	var fields []FieldInfo
+func ExtactAllFields(st *types.Struct, parentName string) []parser.FieldInfo {
+	var fields []parser.FieldInfo
 	for i := 0; i < st.NumFields(); i++ {
 		field := st.Field(i)
 		tag := st.Tag(i)
 		fieldName := field.Name()
-		fieldInfo := FieldInfo{
+		fieldInfo := parser.FieldInfo{
 			Name:     fieldName,
 			Type:     field.Type().String(),
 			Tag:      tag,
@@ -126,6 +119,7 @@ func main() {
 	fset := token.NewFileSet()
 	scanDir(fset)
 }
+
 func scanDir(fset *token.FileSet) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName |
@@ -159,15 +153,8 @@ func scanDir(fset *token.FileSet) {
 							if st, ok := obj.Type().Underlying().(*types.Struct); ok {
 								allFields := ExtactAllFields(st, "")
 								for _, f := range allFields {
-									origin := ""
-									if f.Parent != "" {
-										origin = fmt.Sprintf(" (via %s)", f.Parent)
-									}
-									tagStr := ""
-									if f.Tag != "" {
-										tagStr = fmt.Sprintf(" `%s` ", f.Tag)
-									}
-									fmt.Printf("  - %-15s %-30s%s%s\n ", f.Name, f.Type, origin, tagStr)
+									sqlType := parser.ResolveSQLType(f)
+									fmt.Printf("  - %-15s %-30s\n", f.Name, sqlType)
 								}
 							}
 						}

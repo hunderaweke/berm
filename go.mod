@@ -1,4 +1,4 @@
-module struct-inheritance
+module github.com/hunderaweke/berm
 
 go 1.26.6
 
