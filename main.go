@@ -145,7 +145,7 @@ func scanDir(fset *token.FileSet) {
 					return true
 				}
 				for _, field := range structType.Fields.List {
-					if IsTargetEmbeddedStruct(field, pkg.TypesInfo, "struct-inheritance/models", "Model") {
+					if IsTargetEmbeddedStruct(field, pkg.TypesInfo, "github.com/hunderaweke/berm/models", "Model") {
 						position := pkg.Fset.Position(typeSpec.Pos())
 						fmt.Printf("\n===== Struct:%s (%s:%d) =====\n", typeSpec.Name.Name, pkg.Dir, position.Line)
 						obj := pkg.TypesInfo.Defs[typeSpec.Name]
@@ -154,7 +154,8 @@ func scanDir(fset *token.FileSet) {
 								allFields := ExtactAllFields(st, "")
 								for _, f := range allFields {
 									sqlType := parser.ResolveSQLType(f)
-									fmt.Printf("  - %-15s %-30s\n", f.Name, sqlType)
+									tableName := parser.ResolveTableName(f)
+									fmt.Printf("  - %-15s %-30s\n", tableName, sqlType)
 								}
 							}
 						}
