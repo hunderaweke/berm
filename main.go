@@ -20,13 +20,10 @@ type Inner struct {
 }
 
 func PrintStructDetails(typeSpec *ast.TypeSpec, info *types.Info) {
-	// Look up the type definition object
 	obj := info.Defs[typeSpec.Name]
 	if obj == nil {
 		return
 	}
-
-	// Resolve the underlying struct type
 	structType, ok := obj.Type().Underlying().(*types.Struct)
 	if !ok {
 		return
