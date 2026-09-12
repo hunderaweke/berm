@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"go/ast"
-	"go/token"
 	"go/types"
 	"log"
 
@@ -20,107 +19,11 @@ type Inner struct {
 	ID string
 }
 
-func ExtactAllFields(st *types.Struct, parentName string) []parser.FieldInfo {
-	var fields []parser.FieldInfo
-	for i := 0; i < st.NumFields(); i++ {
-		field := st.Field(i)
-		tag := st.Tag(i)
-		fieldName := field.Name()
-		fieldInfo := parser.FieldInfo{
-			Name:     fieldName,
-			Type:     field.Type().String(),
-			Tag:      tag,
-			Embedded: field.Anonymous(),
-			Parent:   parentName,
-		}
-		fields = append(fields, fieldInfo)
-		if field.Anonymous() {
-			typ := field.Type()
-			if ptr, ok := typ.(*types.Pointer); ok {
-				typ = ptr.Elem()
-			}
-			if embeddedStruct, ok := typ.Underlying().(*types.Struct); ok {
-				innerFields := ExtactAllFields(embeddedStruct, field.Name())
-				fields = append(fields, innerFields...)
-			}
-		}
-	}
-	return fields
-}
-
-func PrintStructDetails(typeSpec *ast.TypeSpec, info *types.Info) {
-	obj := info.Defs[typeSpec.Name]
-	if obj == nil {
-		return
-	}
-	structType, ok := obj.Type().Underlying().(*types.Struct)
-	if !ok {
-		return
-	}
-
-	fmt.Printf("  Fields (%d total):\n", structType.NumFields())
-	for i := 0; i < structType.NumFields(); i++ {
-		fieldVar := structType.Field(i)
-		tag := structType.Tag(i)
-
-		embeddedStr := ""
-		if fieldVar.Anonymous() {
-			embeddedStr = " [Embedded]"
-		}
-
-		tagStr := ""
-		if tag != "" {
-			tagStr = fmt.Sprintf(" `%s`", tag)
-		}
-
-		fmt.Printf("    - Name: %-15s Type: %-25s%s%s\n",
-			fieldVar.Name(),
-			fieldVar.Type().String(),
-			embeddedStr,
-			tagStr,
-		)
-	}
-}
-func IsTargetEmbeddedStruct(field *ast.Field, info *types.Info, targetPathPkg, targetStructName string) bool {
-
-	if len(field.Names) != 0 {
-		return false
-	}
-	if info == nil {
-		return false
-	}
-
-	tv, ok := info.Types[field.Type]
-	if !ok {
-		return false
-	}
-
-	typ := tv.Type
-	if ptr, ok := typ.(*types.Pointer); ok {
-		typ = ptr.Elem()
-	}
-
-	named, ok := typ.(*types.Named)
-	if !ok {
-		return false
-	}
-
-	obj := named.Obj()
-	if obj == nil || obj.Pkg() == nil {
-		return false
-	}
-	return obj.Pkg().Path() == targetPathPkg && obj.Name() == targetStructName
-}
-
-const targetStruct = "Model"
-const targetDir = "."
-
 func main() {
-	fset := token.NewFileSet()
-	scanDir(fset)
+	scanDir()
 }
 
-func scanDir(fset *token.FileSet) {
+func scanDir() {
 	cfg := &packages.Config{
 		Mode: packages.NeedName |
 			packages.NeedFiles |
@@ -145,13 +48,13 @@ func scanDir(fset *token.FileSet) {
 					return true
 				}
 				for _, field := range structType.Fields.List {
-					if IsTargetEmbeddedStruct(field, pkg.TypesInfo, "github.com/hunderaweke/berm/models", "Model") {
+					if parser.IsTargetEmbeddedStruct(field, pkg.TypesInfo, "github.com/hunderaweke/berm/models", "Model") {
 						position := pkg.Fset.Position(typeSpec.Pos())
 						fmt.Printf("\n===== Struct:%s (%s:%d) =====\n", typeSpec.Name.Name, pkg.Dir, position.Line)
 						obj := pkg.TypesInfo.Defs[typeSpec.Name]
 						if obj != nil {
 							if st, ok := obj.Type().Underlying().(*types.Struct); ok {
-								allFields := ExtactAllFields(st, "")
+								allFields := parser.ExtactAllFields(st, "")
 								for _, f := range allFields {
 									sqlType := parser.ResolveSQLType(f)
 									tableName := parser.ResolveTableName(f)
