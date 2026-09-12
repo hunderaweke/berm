@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	"go/ast"
-	"go/types"
 	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/hunderaweke/berm/parser"
-	"golang.org/x/tools/go/packages"
 )
 
 type Outer struct {
@@ -20,66 +20,52 @@ type Inner struct {
 }
 
 func main() {
-	scanDir()
-}
+	src := `package testing
 
-func scanDir() {
-	cfg := &packages.Config{
-		Mode: packages.NeedName |
-			packages.NeedFiles |
-			packages.NeedSyntax |
-			packages.NeedTypes |
-			packages.NeedTypesInfo,
-		Dir: ".",
-	}
-	pkgs, err := packages.Load(cfg, "./...")
+	   import (
+	   	"time"
+
+	   	"github.com/hunderaweke/berm/models"
+	   )
+
+	   type TestEmbeddedStruct struct{
+	   	models.Model
+	   	ID string
+	   	Name string
+	   	Number int
+	   	CreatedAt time.Time
+	   }`
+	testPath := "../testing"
+	err := os.MkdirAll(testPath, 0755)
+	err = os.WriteFile(filepath.Join(testPath, "test.go"), []byte(src), 0644)
 	if err != nil {
-		log.Fatalf("error parsing the directory: %v", err)
+		log.Fatalf("failed writing test file: %v", err)
 	}
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Syntax {
-			ast.Inspect(file, func(n ast.Node) bool {
-				typeSpec, ok := n.(*ast.TypeSpec)
-				if !ok {
-					return true
-				}
-				structType, ok := typeSpec.Type.(*ast.StructType)
-				if !ok {
-					return true
-				}
-				for _, field := range structType.Fields.List {
-					if parser.IsTargetEmbeddedStruct(field, pkg.TypesInfo, "github.com/hunderaweke/berm/models", "Model") {
-						position := pkg.Fset.Position(typeSpec.Pos())
-						fmt.Printf("\n===== Struct:%s (%s:%d) =====\n", typeSpec.Name.Name, pkg.Dir, position.Line)
-						obj := pkg.TypesInfo.Defs[typeSpec.Name]
-						if obj != nil {
-							if st, ok := obj.Type().Underlying().(*types.Struct); ok {
-								allFields := parser.ExtactAllFields(st, "")
-								for _, f := range allFields {
-									sqlType := parser.ResolveSQLType(f)
-									tableName := parser.ResolveTableName(f)
-									fmt.Printf("  - %-15s %-30s\n", tableName, sqlType)
-								}
-							}
-						}
-						// PrintStructDetails(typeSpec, pkg.TypesInfo)
-						return true
-					}
-				}
-				return false
-			})
-		}
+	path, _ := filepath.Abs(testPath)
+	log.Println("path:", path)
+	cmd := exec.Command("go", "mod", "init", "test")
+	cmd.Dir = path
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Fatalf("failed to initialize module: %v, output: %s", err, string(output))
 	}
-}
-func isTargetField(expr ast.Expr, target string) bool {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name == target
-	case *ast.StarExpr:
-		return isTargetField(t.X, target)
-	case *ast.SelectorExpr:
-		return t.Sel.Name == target
-	default:
-		return false
+	localMod, err := filepath.Abs(".")
+	if err != nil {
+		log.Fatalf("failed to resolve local module path: %v", err)
 	}
+	cmd = exec.Command("go", "mod", "edit", "-replace", "github.com/hunderaweke/berm="+localMod)
+	cmd.Dir = path
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		log.Fatalf("failed to add replace directive: %v, output: %s", err, string(output))
+	}
+	cmd = exec.Command("go", "mod", "tidy")
+	cmd.Dir = path
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		log.Fatalf("failed to tidy module: %v, output: %s", err, string(output))
+	}
+	fmt.Printf("module tidied successfully: %s", string(output))
+	parser.ScanDir(testPath)
+	os.RemoveAll(testPath)
 }
