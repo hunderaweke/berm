@@ -4,9 +4,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
-	"log"
-
-	"golang.org/x/tools/go/packages"
 )
 
 type FieldInfo struct {
@@ -104,55 +101,4 @@ func IsTargetEmbeddedStruct(field *ast.Field, info *types.Info, targetPathPkg, t
 		return false
 	}
 	return obj.Pkg().Path() == targetPathPkg && obj.Name() == targetStructName
-}
-func ScanDir(dir string) {
-	cfg := &packages.Config{
-		Mode: packages.NeedName |
-			packages.NeedFiles |
-			packages.NeedSyntax |
-			packages.NeedTypes |
-			packages.NeedTypesInfo,
-		Dir: dir,
-	}
-	pkgs, err := packages.Load(cfg, dir)
-	if err != nil {
-		log.Fatalf("error parsing the directory: %v", err)
-	}
-	if packages.PrintErrors(pkgs) > 0 {
-		log.Fatalf("type errors while scanning %s", dir)
-	}
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Syntax {
-			ast.Inspect(file, func(n ast.Node) bool {
-				typeSpec, ok := n.(*ast.TypeSpec)
-				if !ok {
-					return true
-				}
-				structType, ok := typeSpec.Type.(*ast.StructType)
-				if !ok {
-					return true
-				}
-				for _, field := range structType.Fields.List {
-					if IsTargetEmbeddedStruct(field, pkg.TypesInfo, "github.com/hunderaweke/berm/models", "Model") {
-						position := pkg.Fset.Position(typeSpec.Pos())
-						fmt.Printf("\n===== Struct:%s (%s:%d) =====\n", typeSpec.Name.Name, pkg.Dir, position.Line)
-						obj := pkg.TypesInfo.Defs[typeSpec.Name]
-						if obj != nil {
-							if st, ok := obj.Type().Underlying().(*types.Struct); ok {
-								allFields := ExtactAllFields(st, "")
-								for _, f := range allFields {
-									sqlType := ResolveSQLType(f)
-									tableName := ResolveTableName(f)
-									fmt.Printf("  - %-15s %-30s\n", tableName, sqlType)
-								}
-							}
-						}
-						// PrintStructDetails(typeSpec, pkg.TypesInfo)
-						return true
-					}
-				}
-				return false
-			})
-		}
-	}
 }
