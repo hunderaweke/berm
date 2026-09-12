@@ -70,6 +70,7 @@ func TestResolveSQLType(t *testing.T) {
 
 		// Times and dates
 		{name: "time_struct", typeName: "time.Time", expected: SQLTypeTimestamp},
+		{name: "ptr_time", typeName: "*time.Time", expected: SQLTypeTimestamp},
 		{name: "timestamp", typeName: "timestamp", expected: SQLTypeTimestamp},
 		{name: "datetime", typeName: "datetime", expected: SQLTypeTimestamp},
 		{name: "Time", typeName: "Time", expected: SQLTypeTimestamp},
@@ -79,6 +80,9 @@ func TestResolveSQLType(t *testing.T) {
 		{name: "json", typeName: "json", expected: SQLTypeJSONB},
 		{name: "jsonb", typeName: "jsonb", expected: SQLTypeJSONB},
 		{name: "map_string_interface", typeName: "map[string]interface{}", expected: SQLTypeJSONB},
+		{name: "map_string_any", typeName: "map[string]any", expected: SQLTypeJSONB},
+		{name: "map_string_time", typeName: "map[string]time.Time", expected: SQLTypeJSONB},
+		{name: "ptr_map", typeName: "*map[string]string", expected: SQLTypeJSONB},
 		{name: "map", typeName: "map", expected: SQLTypeJSONB},
 
 		// Byte slices
@@ -130,7 +134,6 @@ func BenchmarkResolveTableName(b *testing.B) {
 		"__weird__case__",
 		"TrailingNumbers123",
 		"NameWith_MixOf_Cases",
-		"",
 	}
 
 	fieldInfos := make([]FieldInfo, len(testNames))
