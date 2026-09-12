@@ -2,13 +2,12 @@ package main
 
 import (
 	"fmt"
-	"go/ast"
-	"go/token"
-	"go/types"
 	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/hunderaweke/berm/parser"
-	"golang.org/x/tools/go/packages"
 )
 
 type Outer struct {
@@ -20,163 +19,105 @@ type Inner struct {
 	ID string
 }
 
-func ExtactAllFields(st *types.Struct, parentName string) []parser.FieldInfo {
-	var fields []parser.FieldInfo
-	for i := 0; i < st.NumFields(); i++ {
-		field := st.Field(i)
-		tag := st.Tag(i)
-		fieldName := field.Name()
-		fieldInfo := parser.FieldInfo{
-			Name:     fieldName,
-			Type:     field.Type().String(),
-			Tag:      tag,
-			Embedded: field.Anonymous(),
-			Parent:   parentName,
-		}
-		fields = append(fields, fieldInfo)
-		if field.Anonymous() {
-			typ := field.Type()
-			if ptr, ok := typ.(*types.Pointer); ok {
-				typ = ptr.Elem()
-			}
-			if embeddedStruct, ok := typ.Underlying().(*types.Struct); ok {
-				innerFields := ExtactAllFields(embeddedStruct, field.Name())
-				fields = append(fields, innerFields...)
-			}
-		}
-	}
-	return fields
-}
-
-func PrintStructDetails(typeSpec *ast.TypeSpec, info *types.Info) {
-	obj := info.Defs[typeSpec.Name]
-	if obj == nil {
-		return
-	}
-	structType, ok := obj.Type().Underlying().(*types.Struct)
-	if !ok {
-		return
-	}
-
-	fmt.Printf("  Fields (%d total):\n", structType.NumFields())
-	for i := 0; i < structType.NumFields(); i++ {
-		fieldVar := structType.Field(i)
-		tag := structType.Tag(i)
-
-		embeddedStr := ""
-		if fieldVar.Anonymous() {
-			embeddedStr = " [Embedded]"
-		}
-
-		tagStr := ""
-		if tag != "" {
-			tagStr = fmt.Sprintf(" `%s`", tag)
-		}
-
-		fmt.Printf("    - Name: %-15s Type: %-25s%s%s\n",
-			fieldVar.Name(),
-			fieldVar.Type().String(),
-			embeddedStr,
-			tagStr,
-		)
-	}
-}
-func IsTargetEmbeddedStruct(field *ast.Field, info *types.Info, targetPathPkg, targetStructName string) bool {
-
-	if len(field.Names) != 0 {
-		return false
-	}
-	if info == nil {
-		return false
-	}
-
-	tv, ok := info.Types[field.Type]
-	if !ok {
-		return false
-	}
-
-	typ := tv.Type
-	if ptr, ok := typ.(*types.Pointer); ok {
-		typ = ptr.Elem()
-	}
-
-	named, ok := typ.(*types.Named)
-	if !ok {
-		return false
-	}
-
-	obj := named.Obj()
-	if obj == nil || obj.Pkg() == nil {
-		return false
-	}
-	return obj.Pkg().Path() == targetPathPkg && obj.Name() == targetStructName
-}
-
-const targetStruct = "Model"
-const targetDir = "."
-
 func main() {
-	fset := token.NewFileSet()
-	scanDir(fset)
+	src := `package testing
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/hunderaweke/berm/models"
+)
+
+type Address struct {
+	Street  string
+	City    string
+	ZipCode string
+	Geo     map[string]float64
 }
 
-func scanDir(fset *token.FileSet) {
-	cfg := &packages.Config{
-		Mode: packages.NeedName |
-			packages.NeedFiles |
-			packages.NeedSyntax |
-			packages.NeedTypes |
-			packages.NeedTypesInfo,
-		Dir: ".",
-	}
-	pkgs, err := packages.Load(cfg, "./...")
+type Profile struct {
+	Bio      string
+	Website  string
+	Birthday time.Time
+	Socials  map[string]string
+}
+
+type Audit struct {
+	DeletedAt *time.Time
+	Version   int
+}
+
+type FirstStruct struct {
+	models.Model
+	Name      string
+	Number    int
+	CreatedAt time.Time
+}
+
+type SecondStruct struct {
+	models.Model
+	Audit
+	Title       string
+	Active      bool
+	Score       float64
+	Tags        []string
+	Metadata    map[string]any
+	Settings    map[string]string
+	Avatar      []byte
+	UserID      uuid.UUID
+	PublishedAt *time.Time
+	Address     Address
+	Profile     *Profile
+	Addresses   []Address
+}
+`
+	testPath := "../testing"
+	err := os.MkdirAll(testPath, 0755)
+	err = os.WriteFile(filepath.Join(testPath, "test.go"), []byte(src), 0644)
 	if err != nil {
-		log.Fatalf("error parsing the directory: %v", err)
+		log.Fatalf("failed writing test file: %v", err)
 	}
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Syntax {
-			ast.Inspect(file, func(n ast.Node) bool {
-				typeSpec, ok := n.(*ast.TypeSpec)
-				if !ok {
-					return true
-				}
-				structType, ok := typeSpec.Type.(*ast.StructType)
-				if !ok {
-					return true
-				}
-				for _, field := range structType.Fields.List {
-					if IsTargetEmbeddedStruct(field, pkg.TypesInfo, "github.com/hunderaweke/berm/models", "Model") {
-						position := pkg.Fset.Position(typeSpec.Pos())
-						fmt.Printf("\n===== Struct:%s (%s:%d) =====\n", typeSpec.Name.Name, pkg.Dir, position.Line)
-						obj := pkg.TypesInfo.Defs[typeSpec.Name]
-						if obj != nil {
-							if st, ok := obj.Type().Underlying().(*types.Struct); ok {
-								allFields := ExtactAllFields(st, "")
-								for _, f := range allFields {
-									sqlType := parser.ResolveSQLType(f)
-									tableName := parser.ResolveTableName(f)
-									fmt.Printf("  - %-15s %-30s\n", tableName, sqlType)
-								}
-							}
-						}
-						// PrintStructDetails(typeSpec, pkg.TypesInfo)
-						return true
-					}
-				}
-				return false
-			})
+	path, _ := filepath.Abs(testPath)
+	if _, err := os.Stat(filepath.Join(path, "go.mod")); os.IsNotExist(err) {
+		cmd := exec.Command("go", "mod", "init", "test")
+		cmd.Dir = path
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Fatalf("failed to initialize module: %v, output: %s", err, string(output))
 		}
 	}
-}
-func isTargetField(expr ast.Expr, target string) bool {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name == target
-	case *ast.StarExpr:
-		return isTargetField(t.X, target)
-	case *ast.SelectorExpr:
-		return t.Sel.Name == target
-	default:
-		return false
+	localMod, err := filepath.Abs(".")
+	if err != nil {
+		log.Fatalf("failed to resolve local module path: %v", err)
 	}
+	cmd := exec.Command("go", "mod", "edit", "-replace", "github.com/hunderaweke/berm="+localMod)
+	cmd.Dir = path
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Fatalf("failed to add replace directive: %v, output: %s", err, string(output))
+	}
+	cmd = exec.Command("go", "mod", "tidy")
+	cmd.Dir = path
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		log.Fatalf("failed to tidy module: %v, output: %s", err, string(output))
+	}
+	p := parser.NewParser(path)
+	err = p.Parse()
+	if err != nil {
+		log.Fatalf("Failed parsing: %v", err)
+	}
+	for name, fieldInfos := range p.Structs {
+		fmt.Printf("\n===== %s =====\n", name)
+		for _, fieldInfo := range fieldInfos.Fields {
+			fmt.Printf("  - %-15s %-12s %-12s %s\n",
+				fieldInfo.Name,
+				parser.ResolveSQLType(fieldInfo),
+				fieldInfo.Type,
+				fieldInfo.Tag,
+			)
+		}
+	}
+	os.RemoveAll(testPath)
 }
