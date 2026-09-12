@@ -108,16 +108,6 @@ type SecondStruct struct {
 	if err != nil {
 		log.Fatalf("Failed parsing: %v", err)
 	}
-	for name, fieldInfos := range p.Structs {
-		fmt.Printf("\n===== %s =====\n", name)
-		for _, fieldInfo := range fieldInfos.Fields {
-			fmt.Printf("  - %-15s %-12s %-12s %s\n",
-				fieldInfo.Name,
-				parser.ResolveSQLType(fieldInfo),
-				fieldInfo.Type,
-				fieldInfo.Tag,
-			)
-		}
-	}
+	fmt.Println(p.GenerateCreationSQLForAllTables())
 	os.RemoveAll(testPath)
 }

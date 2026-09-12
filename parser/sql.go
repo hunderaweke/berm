@@ -162,3 +162,25 @@ func ResolveTableName(info FieldInfo) string {
 	}
 	return toSnakeCase(info.Name)
 }
+
+func quoteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+func postgresArrayType(goType string) string {
+	elem := strings.ToLower(stripPointers(strings.TrimSpace(goType)))
+	elem = strings.TrimPrefix(elem, "[]")
+	sqlType := ResolveSQLType(FieldInfo{Type: elem})
+	if sqlType == SQLTypeArray {
+		return string(SQLTypeText) + "[]"
+	}
+	return string(sqlType) + "[]"
+}
+
+func PostgresColumnType(info FieldInfo) string {
+	sqlType := ResolveSQLType(info)
+	if sqlType == SQLTypeArray {
+		return postgresArrayType(info.Type)
+	}
+	return string(sqlType)
+}

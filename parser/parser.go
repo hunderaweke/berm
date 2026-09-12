@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
+	"strings"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -77,4 +78,35 @@ func (p *Parser) Parse() error {
 		}
 	}
 	return nil
+}
+
+func (p *Parser) GenerateCreationSQL(tableName string) string {
+	info, ok := p.Structs[tableName]
+	if !ok {
+		return ""
+	}
+	seen := make(map[string]bool)
+	cols := make([]string, 0, len(info.Fields)+1)
+	for _, field := range info.Fields {
+		fieldName := ResolveTableName(field)
+		if fieldName == "" || seen[fieldName] {
+			continue
+		}
+		seen[fieldName] = true
+		cols = append(cols, fmt.Sprintf("%s %s", quoteIdent(fieldName), PostgresColumnType(field)))
+	}
+	return fmt.Sprintf(
+		"CREATE TABLE IF NOT EXISTS %s (%s, PRIMARY KEY (%s));\n",
+		quoteIdent(tableName),
+		strings.Join(cols, ", "),
+		quoteIdent("id"),
+	)
+}
+
+func (p *Parser) GenerateCreationSQLForAllTables() string {
+	sql := ""
+	for tableName := range p.Structs {
+		sql += p.GenerateCreationSQL(tableName) + "\n"
+	}
+	return sql
 }

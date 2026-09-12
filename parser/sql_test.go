@@ -1,6 +1,9 @@
 package parser
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestResolveTableName(t *testing.T) {
 	tests := []struct {
@@ -119,6 +122,73 @@ func TestResolveSQLType(t *testing.T) {
 		})
 	}
 }
+
+func TestPostgresColumnType(t *testing.T) {
+	tests := []struct {
+		typeName string
+		want     string
+	}{
+		{typeName: "string", want: "TEXT"},
+		{typeName: "[]string", want: "TEXT[]"},
+		{typeName: "*[]string", want: "TEXT[]"},
+		{typeName: "[]int", want: "INTEGER[]"},
+		{typeName: "[]time.Time", want: "TIMESTAMP[]"},
+		{typeName: "[]byte", want: "BYTEA"},
+		{typeName: "map[string]any", want: "JSONB"},
+		{typeName: "uuid.UUID", want: "UUID"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.typeName, func(t *testing.T) {
+			got := PostgresColumnType(FieldInfo{Type: tt.typeName})
+			if got != tt.want {
+				t.Fatalf("PostgresColumnType(%q) = %q, want %q", tt.typeName, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGenerateCreationSQL(t *testing.T) {
+	p := parseModule(t, map[string]string{
+		"user.go": `package parsertest
+
+import (
+	"time"
+
+	"github.com/hunderaweke/berm/models"
+)
+
+type User struct {
+	models.Model
+	Name      string
+	Tags      []string
+	CreatedAt time.Time
+}
+`,
+	})
+
+	got := p.GenerateCreationSQL("user")
+	wants := []string{
+		`CREATE TABLE IF NOT EXISTS "user"`,
+		`"id" UUID`,
+		`"created_at" TIMESTAMP`,
+		`"updated_at" TIMESTAMP`,
+		`"name" TEXT`,
+		`"tags" TEXT[]`,
+		`PRIMARY KEY ("id")`,
+	}
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Fatalf("SQL missing %q\n%s", want, got)
+		}
+	}
+	if strings.Count(got, `"created_at"`) != 1 {
+		t.Fatalf("duplicate created_at columns:\n%s", got)
+	}
+	if strings.Contains(got, " ARRAY") || strings.Contains(got, "ARRAY,") {
+		t.Fatalf("bare ARRAY is not valid PostgreSQL:\n%s", got)
+	}
+}
+
 func BenchmarkResolveTableName(b *testing.B) {
 	testNames := []string{
 		"VeryLongName",
