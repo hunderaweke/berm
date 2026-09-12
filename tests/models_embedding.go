@@ -8,3 +8,4 @@ type Embedding struct {
 	Username             string
 	SomeVeryLongLongName string
 }
+
