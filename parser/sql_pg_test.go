@@ -99,7 +99,7 @@ type User struct {
 `,
 	})
 
-	ddl := p.GenerateCreationSQL("user")
+	ddl := p.GenerateCreationSQL("users")
 	if ddl == "" {
 		t.Fatal("expected CREATE TABLE SQL")
 	}
@@ -108,7 +108,7 @@ type User struct {
 	got := strings.TrimSpace(psql(t, conn, `
 		SELECT column_name || ' ' || udt_name
 		FROM information_schema.columns
-		WHERE table_schema = 'public' AND table_name = 'user'
+		WHERE table_schema = 'public' AND table_name = 'users'
 		ORDER BY ordinal_position
 	`))
 	want := []string{
@@ -135,7 +135,7 @@ type User struct {
 	}
 
 	psql(t, conn, `
-		INSERT INTO "user" (
+		INSERT INTO "users" (
 			id, created_at, updated_at, name, active, score, tags, metadata, avatar, user_id, published_at
 		) VALUES (
 			'550e8400-e29b-41d4-a716-446655440000',
@@ -152,7 +152,7 @@ type User struct {
 		)
 	`)
 
-	row := strings.TrimSpace(psql(t, conn, `SELECT name || ' ' || active::text || ' ' || score::text FROM "user" WHERE id = '550e8400-e29b-41d4-a716-446655440000'`))
+	row := strings.TrimSpace(psql(t, conn, `SELECT name || ' ' || active::text || ' ' || score::text FROM "users" WHERE id = '550e8400-e29b-41d4-a716-446655440000'`))
 	if row != "Ada true 1.5" {
 		t.Fatalf("selected row = %q, want %q", row, "Ada true 1.5")
 	}

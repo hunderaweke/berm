@@ -60,9 +60,9 @@ func (p *Parser) Parse() error {
 						if obj != nil {
 							if st, ok := obj.Type().Underlying().(*types.Struct); ok {
 								allFields := ExtactAllFields(st, "")
-								tableName := ResolveTableName(FieldInfo{
+								tableName := fmt.Sprintf("%ss", ResolveTableName(FieldInfo{
 									Name: typeSpec.Name.Name,
-								})
+								}))
 								p.Structs[tableName] = StructInfo{
 									Name:      typeSpec.Name.Name,
 									TableName: tableName,
