@@ -166,9 +166,9 @@ type User struct {
 `,
 	})
 
-	got := p.GenerateCreationSQL("user")
+	got := p.GenerateCreationSQL("users")
 	wants := []string{
-		`CREATE TABLE IF NOT EXISTS "user"`,
+		`CREATE TABLE IF NOT EXISTS "users"`,
 		`"id" UUID`,
 		`"created_at" TIMESTAMP`,
 		`"updated_at" TIMESTAMP`,
@@ -186,6 +186,80 @@ type User struct {
 	}
 	if strings.Contains(got, " ARRAY") || strings.Contains(got, "ARRAY,") {
 		t.Fatalf("bare ARRAY is not valid PostgreSQL:\n%s", got)
+	}
+}
+
+func TestGenerateInsertSQL(t *testing.T) {
+	p := parseModule(t, map[string]string{
+		"user.go": `package parsertest
+
+import "github.com/hunderaweke/berm/models"
+
+type User struct {
+	models.Model
+	Name string
+	Age  int
+}
+`,
+	})
+
+	got := p.GenerateInsertSQL("users", map[string]any{
+		"name": "John",
+		"age":  30,
+	})
+	if !strings.Contains(got, `"name"`) || !strings.Contains(got, `"age"`) {
+		t.Fatalf("missing columns:\n%s", got)
+	}
+	if !strings.Contains(got, `'John'`) {
+		t.Fatalf("string value must be quoted:\n%s", got)
+	}
+	if strings.Contains(got, "(John,") || strings.Contains(got, ", John") {
+		t.Fatalf("unquoted string would be a column name:\n%s", got)
+	}
+	if !strings.Contains(got, "30") {
+		t.Fatalf("missing integer value:\n%s", got)
+	}
+}
+
+func TestGenerateBatchInsertSQL(t *testing.T) {
+	p := parseModule(t, map[string]string{
+		"user.go": `package parsertest
+
+import "github.com/hunderaweke/berm/models"
+
+type User struct {
+	models.Model
+	Name string
+	Age  int
+}
+`,
+	})
+
+	if got := p.GenerateBatchInsertSQL("users", nil); got != "" {
+		t.Fatalf("empty rows should return empty SQL, got %q", got)
+	}
+	if got := p.GenerateBatchInsertSQL("missing", []map[string]any{{"name": "A"}}); got != "" {
+		t.Fatalf("unknown table should return empty SQL, got %q", got)
+	}
+
+	got := p.GenerateBatchInsertSQL("users", []map[string]any{
+		{"name": "John", "age": 30},
+		{"name": "Jane"},
+	})
+	if strings.Count(got, "INSERT INTO") != 1 {
+		t.Fatalf("expected a single INSERT:\n%s", got)
+	}
+	if strings.Count(got, "(") != 3 { // column list + 2 value tuples
+		t.Fatalf("expected one column list and two value tuples:\n%s", got)
+	}
+	if !strings.Contains(got, `'John'`) || !strings.Contains(got, `'Jane'`) {
+		t.Fatalf("string values must be quoted:\n%s", got)
+	}
+	if !strings.Contains(got, "30") || !strings.Contains(got, "NULL") {
+		t.Fatalf("missing values should become NULL:\n%s", got)
+	}
+	if !strings.HasPrefix(got, `INSERT INTO "users" (`) || !strings.HasSuffix(got, ";") {
+		t.Fatalf("unexpected SQL shape:\n%s", got)
 	}
 }
 

@@ -6,6 +6,8 @@ import (
 	"go/types"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"golang.org/x/tools/go/packages"
 )
 
@@ -109,4 +111,79 @@ func (p *Parser) GenerateCreationSQLForAllTables() string {
 		sql += p.GenerateCreationSQL(tableName) + "\n"
 	}
 	return sql
+}
+
+func insertColumnNames(info StructInfo, rows []map[string]any) []string {
+	seen := make(map[string]bool, len(info.Fields))
+	cols := make([]string, 0, len(info.Fields))
+	for _, field := range info.Fields {
+		name := ResolveTableName(field)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		if name == "id" {
+			cols = append(cols, name)
+			continue
+		}
+		for _, row := range rows {
+			if row[name] != nil {
+				cols = append(cols, name)
+				break
+			}
+		}
+	}
+	return cols
+}
+
+func (p *Parser) GenerateInsertSQL(tableName string, data map[string]any) string {
+	if data == nil {
+		return ""
+	}
+	return p.GenerateBatchInsertSQL(tableName, []map[string]any{data})
+}
+
+func (p *Parser) GenerateBatchInsertSQL(tableName string, rows []map[string]any) string {
+	info, ok := p.Structs[tableName]
+	if !ok || len(rows) == 0 {
+		return ""
+	}
+	cols := insertColumnNames(info, rows)
+	if len(cols) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.Grow(48 + len(tableName) + len(cols)*24 + len(rows)*(len(cols)*16+4))
+	b.WriteString("INSERT INTO ")
+	b.WriteString(quoteIdent(tableName))
+	b.WriteString(" (")
+	for i, col := range cols {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(quoteIdent(col))
+	}
+	b.WriteString(") VALUES ")
+	for i, row := range rows {
+		if row == nil {
+			row = map[string]any{}
+		}
+		if row["id"] == nil {
+			row["id"] = uuid.New().String()
+		}
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteByte('(')
+		for j, col := range cols {
+			if j > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(quoteSQLValue(row[col]))
+		}
+		b.WriteByte(')')
+	}
+	b.WriteByte(';')
+	return b.String()
 }

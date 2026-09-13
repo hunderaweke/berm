@@ -157,3 +157,77 @@ type User struct {
 		t.Fatalf("selected row = %q, want %q", row, "Ada true 1.5")
 	}
 }
+
+func TestPostgresInsert(t *testing.T) {
+	conn := startPostgres(t)
+	p := parseModule(t, map[string]string{
+		"schema.go": `package parsertest
+
+import (
+	"github.com/hunderaweke/berm/models"
+)
+
+type User struct {
+	models.Model
+	Name string
+	Age  int
+}
+`,
+	})
+
+	ddl := p.GenerateCreationSQL("users")
+	if ddl == "" {
+		t.Fatal("expected CREATE TABLE SQL")
+	}
+	psql(t, conn, ddl)
+	sql := p.GenerateInsertSQL("users", map[string]any{
+		"name": "John",
+		"age":  30,
+	})
+	if sql == "" {
+		t.Fatal("expected INSERT SQL")
+	}
+	psql(t, conn, sql)
+	row := strings.TrimSpace(psql(t, conn, `SELECT name || ' ' || age::text FROM "users" WHERE name = 'John'`))
+	if row != "John 30" {
+		t.Fatalf("selected row = %q, want %q", row, "John 30")
+	}
+}
+
+func TestPostgresBatchInsert(t *testing.T) {
+	conn := startPostgres(t)
+	p := parseModule(t, map[string]string{
+		"schema.go": `package parsertest
+
+import "github.com/hunderaweke/berm/models"
+
+type User struct {
+	models.Model
+	Name string
+	Age  int
+}
+`,
+	})
+	psql(t, conn, p.GenerateCreationSQL("users"))
+	sql := p.GenerateBatchInsertSQL("users", []map[string]any{
+		{"name": "John", "age": 30},
+		{"name": "Jane", "age": 25},
+		{"name": "Ada"},
+	})
+	if sql == "" {
+		t.Fatal("expected batch INSERT SQL")
+	}
+	if strings.Count(sql, "INSERT INTO") != 1 {
+		t.Fatalf("expected one statement:\n%s", sql)
+	}
+	psql(t, conn, sql)
+
+	count := strings.TrimSpace(psql(t, conn, `SELECT count(*)::text FROM "users"`))
+	if count != "3" {
+		t.Fatalf("row count = %q, want 3\n%s", count, sql)
+	}
+	got := strings.TrimSpace(psql(t, conn, `SELECT name || ' ' || coalesce(age::text, 'null') FROM "users" ORDER BY name`))
+	if got != "Ada null\nJane 25\nJohn 30" {
+		t.Fatalf("rows = %q\n%s", got, sql)
+	}
+}

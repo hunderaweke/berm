@@ -1,8 +1,12 @@
 package parser
 
 import (
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var (
@@ -165,6 +169,40 @@ func ResolveTableName(info FieldInfo) string {
 
 func quoteIdent(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+func quoteString(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+func quoteSQLValue(v any) string {
+	if v == nil {
+		return "NULL"
+	}
+	switch val := v.(type) {
+	case bool, int, int8, int16, int32, int64, uint, uint16, uint32, uint64, float32, float64:
+		return fmt.Sprint(val)
+	case string:
+		return quoteString(val)
+	case []byte:
+		return `'\x` + hex.EncodeToString(val) + "'"
+	case time.Time:
+		return quoteString(val.UTC().Format("2006-01-02 15:04:05"))
+	case []string:
+		parts := make([]string, len(val))
+		for i, s := range val {
+			parts[i] = quoteString(s)
+		}
+		return "ARRAY[" + strings.Join(parts, ", ") + "]"
+	case map[string]any:
+		b, err := json.Marshal(val)
+		if err != nil {
+			return "NULL"
+		}
+		return quoteString(string(b))
+	default:
+		return quoteString(fmt.Sprint(val))
+	}
 }
 
 func postgresArrayType(goType string) string {
