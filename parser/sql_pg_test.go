@@ -1,66 +1,79 @@
 package parser
 
 import (
+	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"testing"
-	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-func startPostgres(t *testing.T) string {
+func startPostgres(t *testing.T) *pgx.Conn {
 	t.Helper()
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker is required for PostgreSQL integration tests")
-	}
-	if err := exec.Command("docker", "info").Run(); err != nil {
-		t.Skip("docker daemon is not running")
-	}
-
-	name := fmt.Sprintf("berm-sql-test-%d", time.Now().UnixNano())
-	run := exec.Command(
-		"docker", "run", "-d", "--rm",
-		"--name", name,
-		"-e", "POSTGRES_USER=test",
-		"-e", "POSTGRES_PASSWORD=test",
-		"-e", "POSTGRES_DB=berm",
-		"postgres:16-alpine",
+	ctx := context.Background()
+	pgContainer, err := postgres.Run(
+		ctx,
+		"postgres:18-alpine",
+		postgres.WithDatabase("berm"),
+		postgres.WithUsername("test"),
+		postgres.WithPassword("test"),
+		postgres.BasicWaitStrategies(),
 	)
-	out, err := run.CombinedOutput()
 	if err != nil {
-		t.Fatalf("docker run: %v\n%s", err, out)
+		t.Fatalf("failed to start postgres container: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = exec.Command("docker", "rm", "-f", name).Run()
+		if err := pgContainer.Terminate(context.Background()); err != nil {
+			t.Errorf("failed to terminate postgres container: %v", err)
+		}
 	})
 
-	deadline := time.Now().Add(45 * time.Second)
-	for time.Now().Before(deadline) {
-		if exec.Command("docker", "exec", name, "pg_isready", "-U", "test", "-d", "berm").Run() == nil {
-			return name
-		}
-		time.Sleep(400 * time.Millisecond)
+	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("failed to get postgres connection string: %v", err)
 	}
-	logs, _ := exec.Command("docker", "logs", name).CombinedOutput()
-	t.Fatalf("postgres did not become ready\n%s", logs)
-	return ""
+	conn, err := pgx.Connect(ctx, connStr)
+	if err != nil {
+		t.Fatalf("failed to connect to postgres: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := conn.Close(context.Background()); err != nil {
+			t.Errorf("failed to close postgres connection: %v", err)
+		}
+	})
+	return conn
 }
 
-func psql(t *testing.T, container, query string) string {
+func psql(t *testing.T, conn *pgx.Conn, query string) string {
 	t.Helper()
-	cmd := exec.Command(
-		"docker", "exec", "-i", container,
-		"psql", "-U", "test", "-d", "berm", "-v", "ON_ERROR_STOP=1", "-At", "-c", query,
-	)
-	out, err := cmd.CombinedOutput()
+	rows, err := conn.Query(context.Background(), query)
 	if err != nil {
-		t.Fatalf("psql %q: %v\n%s", query, err, out)
+		t.Fatalf("failed to query: %v\n%s", err, query)
 	}
-	return string(out)
+	defer rows.Close()
+
+	var lines []string
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			t.Fatalf("failed to read row: %v", err)
+		}
+		parts := make([]string, len(values))
+		for i, v := range values {
+			parts[i] = fmt.Sprint(v)
+		}
+		lines = append(lines, strings.Join(parts, ""))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("failed to iterate rows: %v", err)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func TestPostgresCreateAndQuery(t *testing.T) {
-	container := startPostgres(t)
+	conn := startPostgres(t)
 	p := parseModule(t, map[string]string{
 		"schema.go": `package parsertest
 
@@ -90,9 +103,9 @@ type User struct {
 	if ddl == "" {
 		t.Fatal("expected CREATE TABLE SQL")
 	}
-	psql(t, container, ddl)
+	psql(t, conn, ddl)
 
-	got := strings.TrimSpace(psql(t, container, `
+	got := strings.TrimSpace(psql(t, conn, `
 		SELECT column_name || ' ' || udt_name
 		FROM information_schema.columns
 		WHERE table_schema = 'public' AND table_name = 'user'
@@ -121,7 +134,7 @@ type User struct {
 		}
 	}
 
-	psql(t, container, `
+	psql(t, conn, `
 		INSERT INTO "user" (
 			id, created_at, updated_at, name, active, score, tags, metadata, avatar, user_id, published_at
 		) VALUES (
@@ -139,7 +152,7 @@ type User struct {
 		)
 	`)
 
-	row := strings.TrimSpace(psql(t, container, `SELECT name || ' ' || active::text || ' ' || score::text FROM "user" WHERE id = '550e8400-e29b-41d4-a716-446655440000'`))
+	row := strings.TrimSpace(psql(t, conn, `SELECT name || ' ' || active::text || ' ' || score::text FROM "user" WHERE id = '550e8400-e29b-41d4-a716-446655440000'`))
 	if row != "Ada true 1.5" {
 		t.Fatalf("selected row = %q, want %q", row, "Ada true 1.5")
 	}
