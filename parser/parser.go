@@ -187,3 +187,23 @@ func (p *Parser) GenerateBatchInsertSQL(tableName string, rows []map[string]any)
 	b.WriteByte(';')
 	return b.String()
 }
+
+func (p *Parser) GenerateSelectSQL(tableName string, columns []string) string {
+	_, ok := p.Structs[tableName]
+	if !ok {
+		return ""
+	}
+	if len(columns) == 0 {
+		columns = append(columns, "*")
+	}
+	var b strings.Builder
+	b.WriteString("SELECT ")
+	for i, col := range columns {
+		b.WriteString(col)
+		if i != len(columns)-1 {
+			b.WriteString(", ")
+		}
+	}
+	b.WriteString(fmt.Sprintf("FROM '%s';", tableName))
+	return b.String()
+}

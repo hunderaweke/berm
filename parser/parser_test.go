@@ -25,15 +25,15 @@ func writeTestModule(t *testing.T, files map[string]string) string {
 		"go 1.22\n\n" +
 		"require github.com/hunderaweke/berm v0.0.0\n\n" +
 		"replace github.com/hunderaweke/berm => " + bermDir(t) + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
 	for name, src := range files {
 		path := filepath.Join(dir, name)
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", path, err)
 		}
-		if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}

@@ -231,3 +231,31 @@ type User struct {
 		t.Fatalf("rows = %q\n%s", got, sql)
 	}
 }
+
+func TestPostgresSelect(t *testing.T) {
+	conn := startPostgres(t)
+	p := parseModule(t, map[string]string{
+		"schema.go": `package parsertest
+
+import "github.com/hunderaweke/berm/models"
+
+type User struct {
+	models.Model
+	Name string
+	Age  int
+}
+`,
+	})
+	psql(t, conn, p.GenerateCreationSQL("users"))
+	psql(t, conn, p.GenerateBatchInsertSQL("users", []map[string]any{
+		{"name": "John", "age": 30},
+		{"name": "Jane", "age": 25},
+		{"name": "Ada", "age": 23},
+	}))
+	psql(t, conn, p.GenerateCreationSQL("users"))
+
+	got := strings.TrimSpace(psql(t, conn, `SELECT name, age FROM "users";`))
+	if got == "" {
+		t.Fatalf("rows = %q", got)
+	}
+}

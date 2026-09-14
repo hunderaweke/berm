@@ -72,8 +72,8 @@ func PrintStructDetails(typeSpec *ast.TypeSpec, info *types.Info) {
 		)
 	}
 }
-func IsTargetEmbeddedStruct(field *ast.Field, info *types.Info, targetPathPkg, targetStructName string) bool {
 
+func IsTargetEmbeddedStruct(field *ast.Field, info *types.Info, targetPathPkg, targetStructName string) bool {
 	if len(field.Names) != 0 {
 		return false
 	}

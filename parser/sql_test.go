@@ -263,6 +263,27 @@ type User struct {
 	}
 }
 
+func TestGenerateSelectSQL(t *testing.T) {
+	p := parseModule(t, map[string]string{
+		"user.go": `package parsertest
+
+import "github.com/hunderaweke/berm/models"
+
+type User struct {
+	models.Model
+	Name string
+	Age  int
+}
+`,
+	})
+
+	got := p.GenerateSelectSQL("users", []string{"name", "age"})
+	if got == "" {
+		t.Fatal("select sql should not be empty")
+	}
+	t.Log(got)
+}
+
 func BenchmarkResolveTableName(b *testing.B) {
 	testNames := []string{
 		"VeryLongName",
